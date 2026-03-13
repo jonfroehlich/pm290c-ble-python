@@ -22,6 +22,7 @@ Usage:
 import argparse
 import asyncio
 import sys
+import time
 
 from bleak import BleakClient, BleakScanner
 
@@ -141,13 +142,18 @@ def image_obj_to_bitmap(img):
 
 async def send_chunked(client, uuid, data, chunk_size=CHUNK_SIZE):
     """Send data in BLE-MTU-sized chunks."""
+    t0 = time.time()
+    num_chunks = (len(data) + chunk_size - 1) // chunk_size
     for i in range(0, len(data), chunk_size):
         chunk = data[i:i + chunk_size]
         await client.write_gatt_char(uuid, chunk, response=False)
-        await asyncio.sleep(0.2)  # small delay to avoid overwhelming the printer
+        await asyncio.sleep(0.2)
+    print(f"  Chunks sent: {num_chunks} chunks, {len(data)} bytes [{time.time()-t0:.2f}s]")
 
 
 async def main_async():
+    t_start = time.time()
+
     parser = argparse.ArgumentParser(
         description="Print to PM290C via BLE (TSPL protocol)"
     )
@@ -169,31 +175,40 @@ async def main_async():
         parser.error("Provide text to print or --image")
 
     # Build bitmap
+    t0 = time.time()
     if args.image:
         print(f"Loading image: {args.image}")
         num_rows, bitmap_data = image_to_bitmap(args.image)
     else:
         print(f"Rendering: {args.text!r} (size {args.font_size})")
         num_rows, bitmap_data = text_to_bitmap(args.text, font_size=args.font_size)
-
-    print(f"Bitmap: {num_rows} rows x {PRINT_WIDTH_PX}px ({len(bitmap_data)} bytes)")
+    print(f"Bitmap: {num_rows} rows x {PRINT_WIDTH_PX}px ({len(bitmap_data)} bytes) [{time.time()-t0:.2f}s]")
 
     # Calculate height in mm (203 DPI = 8 dots/mm)
     height_mm = args.height_mm or max(1, num_rows // 8)
 
     # Scan for printer
+    # print("Scanning for PM290C...")
+    # t0 = time.time()
+    # devices = await BleakScanner.discover(timeout=10.0)
+    # target = next((d for d in devices if d.name and "PM290" in d.name.upper()), None)
+    # if not target:
+    #     print("PM290C not found! Is it on and not connected to your laptop?")
+    #     sys.exit(1)
+    # print(f"Found: {target.name} ({target.address}) [{time.time()-t0:.2f}s]")
     print("Scanning for PM290C...")
-    devices = await BleakScanner.discover(timeout=10.0)
-    target = next((d for d in devices if d.name and "PM290" in d.name.upper()), None)
+    t0 = time.time()
+    target = await BleakScanner.find_device_by_name("PM290C", timeout=10.0)
     if not target:
         print("PM290C not found! Is it on and not connected to your phone?")
         sys.exit(1)
-    print(f"Found: {target.name} ({target.address})")
+    print(f"Found: {target.name} ({target.address}) [{time.time()-t0:.2f}s]")
 
     # Connect
     print("Connecting...")
+    t0 = time.time()
     async with BleakClient(target.address) as client:
-        print(f"Connected. MTU={client.mtu_size}")
+        print(f"Connected. MTU={client.mtu_size} [{time.time()-t0:.2f}s]")
 
         # Subscribe to notifications
         await client.start_notify(NOTIFY_UUID, notification_handler)
@@ -204,10 +219,12 @@ async def main_async():
         await asyncio.sleep(0.3)
 
         # Send ae3b init packet (from capture)
+        t0 = time.time()
         if args.verbose:
             print(f"  >> ae3b init: {AE3B_INIT.hex()}")
         await client.write_gatt_char(INIT_UUID, AE3B_INIT, response=False)
         await asyncio.sleep(0.2)
+        print(f"Init packet sent [{time.time()-t0:.2f}s]")
 
         # Query battery (optional, confirms communication)
         await client.write_gatt_char(WRITE_UUID, b'BATTERY?\r\n', response=False)
@@ -240,7 +257,9 @@ async def main_async():
         await send_chunked(client, WRITE_UUID, payload)
 
         print("Data sent. Waiting for printer...")
+        t0 = time.time()
         await asyncio.sleep(5.0)
+        print(f"Wait complete [{time.time()-t0:.2f}s]")
 
         # Cleanup
         try:
@@ -249,7 +268,7 @@ async def main_async():
         except Exception:
             pass
 
-    print("Done!")
+    print(f"Done! Total elapsed: {time.time()-t_start:.2f}s")
 
 
 def main():
