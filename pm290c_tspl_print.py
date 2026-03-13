@@ -228,7 +228,7 @@ async def main_async():
 
         # Query battery (optional, confirms communication)
         await client.write_gatt_char(WRITE_UUID, b'BATTERY?\r\n', response=False)
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.5)
 
         # Build TSPL command sequence (exactly matching Labelnize capture)
         tspl_header = (
