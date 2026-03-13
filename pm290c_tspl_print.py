@@ -102,6 +102,12 @@ def image_to_bitmap(image_path, width_px=PRINT_WIDTH_PX):
     # Threshold to 1-bit without dithering for clean line art
     img = img.point(lambda x: 0 if x < 128 else 255, '1')
 
+    # Optional: Add extra blank rows at the bottom to ensure clean cut
+    pad_rows = 80  # ~10mm at 203 DPI
+    padded = Image.new('1', (img.width, img.height + pad_rows), color=0)
+    padded.paste(img, (0, 0))
+    img = padded
+
     return image_obj_to_bitmap(img)
 
 
@@ -138,7 +144,7 @@ async def send_chunked(client, uuid, data, chunk_size=CHUNK_SIZE):
     for i in range(0, len(data), chunk_size):
         chunk = data[i:i + chunk_size]
         await client.write_gatt_char(uuid, chunk, response=False)
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.2)  # small delay to avoid overwhelming the printer
 
 
 async def main_async():
@@ -205,7 +211,7 @@ async def main_async():
 
         # Query battery (optional, confirms communication)
         await client.write_gatt_char(WRITE_UUID, b'BATTERY?\r\n', response=False)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.2)
 
         # Build TSPL command sequence (exactly matching Labelnize capture)
         tspl_header = (
