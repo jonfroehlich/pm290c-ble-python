@@ -91,14 +91,16 @@ def text_to_bitmap(text, font_size=24, width_px=PRINT_WIDTH_PX):
 
 
 def image_to_bitmap(image_path, width_px=PRINT_WIDTH_PX):
-    """Load image, resize, convert to 1-bit bitmap."""
-    from PIL import Image
+    from PIL import Image, ImageOps
 
     img = Image.open(image_path)
+    # Convert to grayscale first (handles RGBA, palette, etc.)
+    img = img.convert('L')
     ratio = width_px / img.width
     new_h = int(img.height * ratio)
     img = img.resize((width_px, new_h))
-    img = img.convert('1')
+    # Threshold to 1-bit without dithering for clean line art
+    img = img.point(lambda x: 0 if x < 128 else 255, '1')
 
     return image_obj_to_bitmap(img)
 
