@@ -106,11 +106,9 @@ def image_to_bitmap(image_path, width_px=PRINT_WIDTH_PX):
 def image_obj_to_bitmap(img):
     """Convert a Pillow 1-bit image to raw bitmap bytes for TSPL BITMAP command.
 
+    TSPL BITMAP format: 1 bit per pixel, MSB first, 0=white, 1=black.
     Pillow '1' mode: 0=black, 255=white.
-    TSPL BITMAP mode 1: 0=black dot, 1=no dot (white).
-
-    We build bytes with Pillow-black → bit 1, then XOR 0xFF to invert,
-    yielding TSPL's expected 0=black, 1=white encoding.
+    So: Pillow 0 (black) -> bit 1, Pillow 255 (white) -> bit 0.
 
     Returns (num_rows, raw_bytes).
     """
@@ -128,7 +126,7 @@ def image_obj_to_bitmap(img):
                     pixel = img.getpixel((px, y))
                     if pixel == 0:  # black in Pillow
                         byte_val |= (1 << (7 - bit))
-            raw.append(byte_val ^ 0xFF)  # invert: TSPL mode 1 expects 0=black, 1=white
+            raw.append(byte_val)
 
     return height, bytes(raw)
 
@@ -138,7 +136,7 @@ async def send_chunked(client, uuid, data, chunk_size=CHUNK_SIZE):
     for i in range(0, len(data), chunk_size):
         chunk = data[i:i + chunk_size]
         await client.write_gatt_char(uuid, chunk, response=False)
-        await asyncio.sleep(0.03)
+        await asyncio.sleep(0.01)
 
 
 async def main_async():
@@ -214,12 +212,12 @@ async def main_async():
             f"DIRECTION 0,0\r\n"
             f"DENSITY {args.density}\r\n"
             f"CLS\r\n"
+            f"PRINT 1,1\r\n"
             f"BITMAP 0,0,{BYTES_PER_ROW},{num_rows},1,"
         ).encode('ascii')
 
-        # Full payload: TSPL header + raw bitmap data + PRINT command
-        # PRINT must come AFTER bitmap data so the image is fully defined
-        payload = tspl_header + bitmap_data + b'\r\nPRINT 1,1\r\n'
+        # Full payload: TSPL header + raw bitmap data + \r\n
+        payload = tspl_header + bitmap_data + b'\r\n'
 
         print(f"Sending {len(payload)} bytes...")
         if args.verbose:
